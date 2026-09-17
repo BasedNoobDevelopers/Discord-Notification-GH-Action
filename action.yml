@@ -62,6 +62,10 @@ inputs:
     description: "Title of notification"
     required: false
     default: ""
+  url:
+    description: "Url inside of notification"
+    required: false
+    default: ""
 
 
 
@@ -84,6 +88,7 @@ runs:
         SOUND_URL_2: ${{inputs.sound_url_2}}
         COLOR: ${{inputs.color}}
         TITLE: ${{inputs.title}}
+        URL: ${{inputs.url}}
        run: |
         envsubst < $FILE_NAME > config.json
      
