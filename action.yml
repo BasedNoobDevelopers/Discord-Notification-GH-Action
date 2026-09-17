@@ -54,6 +54,10 @@ inputs:
     description: "SHA code"
     required: false
     default: ""
+  run_id:
+    description: "Run ID"
+    required: false
+    default: ""
 
 
 
