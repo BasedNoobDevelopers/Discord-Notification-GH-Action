@@ -89,6 +89,7 @@ runs:
         TITLE: ${{inputs.title}}
         URL: ${{inputs.url}}
         AVATAR_URL: ${{inputs.avatar_url}}
+        TRUNK_BRANCH: ${{inputs.trunk_branch_name}}
        run: |
         envsubst < $FILE_NAME > config.json
      
