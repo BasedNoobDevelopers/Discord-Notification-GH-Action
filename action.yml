@@ -82,13 +82,13 @@ runs:
         RUN_ID: ${{inputs.run_id}}
         REPOSITORY: ${{inputs.repository}}
         IMAGE_URL: ${{inputs.image_url}}
-        COLOR_URL: ${{inputs.color_url}}
         FILE_NAME: ${{inputs.file_name}}
         SOUND_URL_1: ${{inputs.sound_url_1}}
         SOUND_URL_2: ${{inputs.sound_url_2}}
-        COLOR: ${{inputs.color}}
+        COLOR_DECIMAL: ${{inputs.color}}
         TITLE: ${{inputs.title}}
         URL: ${{inputs.url}}
+        AVATAR_URL: ${{inputs.avatar_url}}
        run: |
         envsubst < $FILE_NAME > config.json
      
