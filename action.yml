@@ -96,6 +96,7 @@ runs:
        shell: bash
        run: |
           jq . config.json
+          cat config.json
 
      - name: Send Webhook
        shell: bash
