@@ -1,0 +1,198 @@
+name: Discord Notification
+description: Utilized for sending Discord Notification
+
+# Inputs
+inputs:
+  bot_user_name:
+    description: "Name for the Dicord Bot"
+    required: false
+    default: "Based Tech Bot"
+  avatar_url:
+    description: "Avatar URL for the Discord Bot"
+    required: false
+    default: "https://static.wikia.nocookie.net/dragonball/images/6/6e/The_Return_of_Cooler_-_A_new_Meta-Cooler_appears_before_Goku_%26_Vegeta.png/revision/latest?cb=20230626184623"
+  image_url:
+    description: "Url that displays in the message"
+    required: false
+    default: ""
+  branch_name:
+    description: "Current Branch Reference"
+    required: true
+  trunk_branch_name:
+    description: "Trunk Branch"
+    required: false
+    default: "main"
+  current_user:
+    description: "Current User"
+    required: true
+  color:
+    description: "Color for the Discord message"
+    required: true
+  content:
+    description: "Content"
+    required: false
+    default: ""
+  sound_url_1:
+    description: "Sound Url"
+    required: false
+    default: ""
+  sound_url_2:
+    description: "Sound Url 2"
+    required: false
+    default: ""
+  sha_code:
+    description: "SHA code"
+    required: false
+    default: ""
+  
+  
+
+outputs:
+  release_upload_url:
+    description: "Release Url"
+    value: ${{ steps.create_release.outputs.upload_url }}
+  is_tag:
+     description: "Is Tag"
+     value: ${{ steps.is_tag.outputs.IS_TAG }}
+
+
+runs:
+  using: "composite"
+  steps:
+     - name: Setup Java
+       uses: actions/setup-java@v4
+       with:
+            distribution: 'zulu'
+            java-version: ${{inputs.java_version}}
+            server-id: central
+            server-username: MAVEN_USERNAME
+            server-password: MAVEN_CENTRAL_TOKEN
+            gpg-private-key: ${{inputs.gpg_key}}
+            gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+     - name: Check For Tag
+       id: is_tag
+       shell: bash
+       run: |
+         if git show-ref --tags --verify --quiet "refs/tags/${HEAD_BRANCH}"; then
+            echo "Tag ${HEAD_BRANCH} exists"
+            echo "NEXUS_REPO_ID=maven-releases">> $GITHUB_OUTPUT
+            echo "RELEASE_ENFORCEMENT=-Prelease-enforcement" >> $GITHUB_OUTPUT
+            echo "IS_TAG=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag ${HEAD_BRANCH} does not exist"
+            echo "NEXUS_REPO_ID=maven-snapshots">> $GITHUB_OUTPUT
+            echo "RELEASE_ENFORCEMENT=" >> $GITHUB_OUTPUT
+            echo "IS_TAG=false" >> $GITHUB_OUTPUT
+          fi
+       env:
+         HEAD_BRANCH: ${{ inputs.branch_name }}
+
+     - name: Validate If Triggered By IKMDEV
+       id: triggered_by_ikm
+       shell: bash
+       run: |
+         echo "Repo Owner: ${REPOSITORY_OWNER}"
+         echo "Trigger User: ${TRIGGER_USER}"
+
+         if [ $REPOSITORY_OWNER == $TRIGGER_USER ]; then
+           echo "IKM_TRIGGER=true" >> $GITHUB_OUTPUT
+         else
+           echo "IKM_TRIGGER=false" >> $GITHUB_OUTPUT
+         fi
+       env:
+         REPOSITORY_OWNER: ${{github.repository_owner}}
+         TRIGGER_USER: ${{github.event.workflow_run.head_repository.owner.login || github.event.repository.owner.login}}
+
+     - name: Maven Settings File
+       uses: whelk-io/maven-settings-xml-action@v22
+       with:
+        servers: '[{"id": "${{ steps.is_tag.outputs.NEXUS_REPO_ID }}", "username": "${{inputs.nexus_repo_username}}", "password": "${{inputs.nexus_repo_password}}"},{"id": "central", "username": "${{inputs.maven_central_username}}", "password": "${{inputs.maven_central_password}}"}]'
+        profiles: '[{"id": "defaultDeployProfile", "properties": {"altDeploymentRepository": "${{  steps.is_tag.outputs.NEXUS_REPO_ID  }}::${{ inputs.nexus_repo_url }}/repository/${{ steps.is_tag.outputs.NEXUS_REPO_ID  }}"}}]'
+        active_profiles: '["defaultDeployProfile"]' 
+        output_file: .m2/settings.xml
+
+     - name: Maven Build
+       shell: bash
+       run: |
+          ./mvnw clean install\
+            --batch-mode \
+            -U \
+            -e \
+            -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn \
+            -Dmaven.build.cache.enabled=false \
+            -PcodeQuality \
+            -P?generateData \
+            ${{  steps.is_tag.outputs.RELEASE_ENFORCEMENT  }} \
+            ${{ inputs.mvn_additional_args }}
+
+     - name: SonarCloud Build and analyze
+       shell: bash  
+       run: | 
+           ./mvnw verify sonar:sonar \
+             --batch-mode \
+             -Dmaven.build.cache.enabled=false \
+             -Dsonar.sonarcloud_token=${{ inputs.sonarcloud_token }} \
+             -Dsonar.organization=${{ github.repository_owner }} \
+             -Dsonar.sonarcloud_host_url=${{ inputs.sonarcloud_host_url }} \
+             -Dsonar.sources=${{ inputs.sonarcloud_sources }} \
+             -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }} \
+             -Dsonar.coverage.jacoco.xmlReportPaths=${{ inputs.sonarcloud_coverage_jacoco_xmlReportPaths }} \
+             -Dsonar.java.binaries=${{ inputs.sonarcloud_java_binaries }} \
+             -Dsonar.tests=${{ inputs.sonarcloud_tests }} \
+             ${{ inputs.mvn_additional_args }}
+       env:
+        SONAR_TOKEN: ${{ inputs.sonarcloud_token }}
+        SONAR_HOST_URL: ${{ inputs.sonarcloud_host_url }}
+        SONAR_ORGANIZATION: ${{ github.repository_owner }} 
+
+     - name: Deploy To Nexus
+       shell: bash
+       if: (!(steps.is_tag.outputs.IS_TAG == 'true' && steps.triggered_by_ikm.outputs.IKM_TRIGGER == 'true' && !contains(github.event.repository.name, 'komet')))
+       run: |
+          ./mvnw deploy \
+            --batch-mode \
+            -U \
+            -e \
+            -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn \
+            -DskipTests=true \
+            -DskipITs=true \
+            -s '/home/runner/work/${{github.event.repository.name}}/${{github.event.repository.name}}/.m2/settings.xml'\
+            -DrepositoryId='${{ steps.is_tag.outputs.NEXUS_REPO_ID  }}' \
+            -DaltDeploymentRepository="${{ steps.is_tag.outputs.NEXUS_REPO_ID }}::${{ inputs.nexus_repo_url }}/repository/${{ steps.is_tag.outputs.NEXUS_REPO_ID }}" \
+            ${{ inputs.mvn_additional_args }}
+    
+     - name: Publish To Maven Central Staging
+       shell: bash
+       if: steps.is_tag.outputs.IS_TAG == 'true' && steps.triggered_by_ikm.outputs.IKM_TRIGGER == 'true' && !contains(github.event.repository.name, 'komet')
+       run: |
+            ./mvnw deploy \
+                  --batch-mode \
+                  -e \
+                  -U \
+                  -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn \
+                  -DskipTests=true \
+                  -DskipITs=true \
+                  -PstageMavenCentralRepository \
+                  -s '/home/runner/work/${{github.event.repository.name}}/${{github.event.repository.name}}/.m2/settings.xml'\
+                  -DrepositoryId='${{ steps.is_tag.outputs.NEXUS_REPO_ID  }}' \
+                  -DaltDeploymentRepository="${{ steps.is_tag.outputs.NEXUS_REPO_ID }}::${{ inputs.nexus_repo_url }}/repository/${{ steps.is_tag.outputs.NEXUS_REPO_ID }}" \
+                  ${{ inputs.mvn_additional_args }}
+       env:
+          MAVEN_USERNAME: ${{ inputs.maven_central_username}}
+          MAVEN_CENTRAL_TOKEN: ${{ inputs.maven_central_password }}
+          MAVEN_GPG_PASSPHRASE: ${{ inputs.gpg_passphrase }}
+
+     - name: Create Release
+       id: create_release
+       if: steps.is_tag.outputs.IS_TAG == 'true' && steps.triggered_by_ikm.outputs.IKM_TRIGGER == 'true'
+       uses: comnoco/create-release-action@v2.0.5
+       env:
+          GITHUB_TOKEN: ${{ inputs.github_token }}
+       with:
+          tag_name: ${{ inputs.branch_name }}
+          release_name: Release ${{ inputs.branch_name }}
+          body: |
+            Release ${{ inputs.branch_name }}
+          draft: false
+          prerelease: false
