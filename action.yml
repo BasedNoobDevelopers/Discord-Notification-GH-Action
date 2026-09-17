@@ -76,7 +76,7 @@ runs:
         SOUND_URL_2: ${{inputs.sound_url_2}}
         COLOR: ${{inputs.color}}
        run: |
-        envsubst < release_notification.json > config.json
+        envsubst < $FILE_NAME > config.json
      
      - name: Validate JSON
        shell: bash
